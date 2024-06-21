@@ -27,6 +27,10 @@ Don't need to install anything, but just in case.
 
 ## Documentation 
 
+Inline POD documentation, run: 
+
     perldoc ena.pl
+
+Run the the script without options for usage.    
     
 
