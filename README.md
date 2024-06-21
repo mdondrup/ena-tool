@@ -7,6 +7,7 @@ A Perl script that allows to create submission projects and umbrella projects in
 
     perl Makefile.PL
     make install
+
 ## Documentation 
 
     perldoc ena.pl
