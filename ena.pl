@@ -4,14 +4,27 @@ use strict;
 use warnings;
 use Getopt::Long;
 use LWP::UserAgent;
-use HTTP::Request::Common qw(POST);
+use HTTP::Request::Common qw(POST GET);
 use MIME::Base64;
 use Pod::Usage;
 use POSIX qw(strftime);
 use XML::Simple qw (:strict);
+use utf8;
 
 
 my $today = strftime "%Y-%m-%d", localtime;
+my $timestamp = strftime "-- (updated: %Y-%m-%d %T %Z)", localtime; # Generate a timestamp to append to description for modifications
+
+
+my $maxRetries = 10; ## max number of server retries in case of errors
+my $serverTimeout = 5; ## 10s to respond
+my $waitBetweenRetries = 5; ## 2s to wait betweeen retries
+
+ # Prepare HTTP user agent
+my $ua = LWP::UserAgent->new;
+$ua->timeout($serverTimeout);
+#$ua->agent("");
+
 
 use File::Temp qw(tempfile tempdir); 
 
@@ -27,11 +40,11 @@ sub usage {
 
 ###### Supported actions:
 ## From ENA error message
-## Expected elements 'ADD MODIFY CANCEL SUPPRESS* KILL HOLD RELEASE PROTECT* ROLLBACK VALIDATE RECEIPT'
+## Expected elements 'ADD MODIFY CANCEL SUPPRESS* KILL* HOLD RELEASE PROTECT* ROLLBACK VALIDATE RECEIPT'
 ## *: not supported by ENA API
 ######
 
-my %allowed_actions = qw(ADD 1 MODIFY 1 CANCEL 1 SUPPRESS 0 KILL 1 HOLD 1 RELEASE 1 PROTECT 0 ROLLBACK 1 VALIDATE 1 RECEIPT 1);
+my %allowed_actions = qw(SHOW 1 ADD 1 MODIFY 1 CANCEL 1 SUPPRESS 0 KILL 0 HOLD 1 RELEASE 1 PROTECT 0 ROLLBACK 1 VALIDATE 1 RECEIPT 1);
 
 my ($action, $what, $alias, $description, $children, $parent, $title, $verbose, $date, $center,
     $username, $password, $receipt, $locusTag, $accession, $keep, $production);
@@ -71,37 +84,46 @@ if  ( $what && $what !~ /^umbrella|project$/ ) {
 
 
 # URL for ENA submission
-my $url = 'https://wwwdev.ebi.ac.uk/ena/submit/drop-box/submit/';
+my $URL_PREFIX = 'https://wwwdev.ebi.ac.uk/ena/submit/drop-box/';
 ### Add the production URL
-$url = 'https://www.ebi.ac.uk/ena/submit/drop-box/submit/' if $production;
+$URL_PREFIX = 'https://www.ebi.ac.uk/ena/submit/drop-box/' if $production;
+
+my $url = $URL_PREFIX;
 
 my $encoded_credentials = encode_base64("$username:$password", '');
 
-# Prepare HTTP user agent
-my $ua = LWP::UserAgent->new;
-$ua->timeout(10);
+#$ua->credentials( 'wwwdev.ebi.ac.uk:443', 'PAUSE', $username, $password);
 my ($submit_file, $project_file);
 
-if ($action eq 'ADD') {
-  ### we should check if the project exists already... This can only be done based on alias
-  $submit_file = makesubmit($action, $date);
-  $project_file = makeproject($what, $title, $description, $alias, $center, $locusTag);
-    
-
-} elsif ($action eq 'MODIFY') {
- 
-   $submit_file = makesubmit($action, $date);
-  $project_file = make_modify_project($what, $title, $description, $alias, $center,  $children, $accession, $locusTag);
-  
+if ($action eq 'SHOW') {
+### "https://wwwdev.ebi.ac.uk/ena/submit/drop-box/projects/PRJEB704?format=xml
+  usage() unless $accession;
+  $url .= 'projects/'.($accession).'?format=xml'
 } else {
-  $submit_file = makesubmit($action, $date, $accession);
-  #$project_file = make_modify_project($what, $title, $description, $alias, $center, $parent, $children, $accession);
 
+  $url .= 'submit';
 
+  if ($action eq 'ADD') {
+    ### we should check if the project exists already... This can only be done based on alias
+    $submit_file = makesubmit($action, $date);
+    $project_file = makeproject($what, $title, $description, $alias, $center, $locusTag);
+    
+    
+  } elsif ($action eq 'MODIFY') {
+    
+    $submit_file = makesubmit($action, $date);
+    $project_file = make_modify_project($what, $title, $description, $alias, $center,  $children, $accession, $locusTag);
+
+  } else {
+    $submit_file = makesubmit($action, $date, $accession);
+    #$project_file = make_modify_project($what, $title, $description, $alias, $center, $parent, $children, $accession);
+  }
 }
 
-
-my $req = POST $url,
+my $request = ($action eq 'SHOW') ?
+  GET $url, Authorization => "Basic $encoded_credentials"
+  :
+  POST $url,
   Content_Type => 'form-data',			     
   Content => [
 	      Application => 'testing',
@@ -112,9 +134,14 @@ my $req = POST $url,
   ;
 			    
 
-print $req->as_string if $verbose;
+print $request->as_string if $verbose;
 
-my $response = $ua->request($req);
+my $response;
+
+
+
+$response = retry_request($request, $maxRetries);
+
 
 # Check the response
 if ($response->is_success) {
@@ -125,28 +152,86 @@ if ($response->is_success) {
     close RECEIPT;
   }
 } else {
-    warn "Error communicating with ENA: " . $response->status_line . "\n" . "\n";
+  die "Error communicating with ENA: " . $response->status_line . "\n" .$response->decoded_content. "\n";
+ 
   }
 
-my $ref = XMLin($response->decoded_content, KeyAttr => {  }, ForceArray => [  'ACTIONS' ]);
+my $ref = XMLin($response->decoded_content, KeyAttr => {  }, ForceArray => [  'ERROR', 'INFO' ]);
 
-
-use Data::Dumper;
+#use Data::Dumper;
  
 #print Dumper($ref);
 
-if ($ref->{success} eq 'true') {
-  
-  print ($ref->{PROJECT}->{accession},"\n"); 
-  print STDERR join("\n", @{$ref->{MESSAGES}->{INFO}});
-  exit 0;
+if ($ref->{PROJECT}->{accession} || $action eq 'SHOW' || $ref->{success} && $ref->{success} eq 'true' ) {
+  if($action eq 'SHOW') {
+    print $response->decoded_content,"\n";
+  } else {
+    print ($ref->{PROJECT}->{accession},"\n");
+  }
+  if (ref $ref->{MESSAGES}->{INFO} eq 'ARRAY') {
+    print STDERR join("\n", @{$ref->{MESSAGES}->{INFO}});
+
+  } else {
+     print STDERR $ref->{MESSAGES}->{INFO} if $ref->{MESSAGES}->{INFO};
+  }
 } else {
-  die ($ref->{MESSAGES}->{ERROR}."\n");
+  die join "\n", @{$ref->{MESSAGES}->{ERROR}} if ref $ref->{MESSAGES}->{ERROR} ;
 }
 
 
 
 ################################################## Subroutines ####################################################
+
+### Server time-out issues.... on dev at least
+
+sub retry_request {
+  my ($req, $retries) = @_;
+  my $response;
+  die "request empty" unless $req;
+  print ($req->as_string,"\n") if $verbose;
+  while (!$response || !$response->is_success) {
+    $response = $ua->request($req);
+    if ($response->status_line =~/Operation timed out/) {
+      warn "Server connection timed out, waiting $waitBetweenRetries secs ...";
+      sleep $waitBetweenRetries;
+    }
+    $retries--;
+    last if $retries <= 0 || $response->status_line =~ /404|500 Internal Server Error/ || $response->is_success  ;
+  }
+  #undef ua;
+  sleep $serverTimeout+1;
+  return $response;
+}
+
+sub getObjectDataByAccession {
+  my ($accession, $urll) = @_;
+  die "missing accession" unless $accession;
+
+  $urll .= 'projects/'.($accession).'?format=xml';
+  my $request = GET $urll, Authorization => "Basic $encoded_credentials";
+  
+  my $response = retry_request($request, $maxRetries);
+
+  die "Error retrieving project data for $accession: ". $response->status_line ."\n" unless $response->is_success;
+
+  my $ref = XMLin($response->decoded_content, KeyAttr => {  }, ForceArray => [ ]);
+
+  #use Data::Dumper;
+
+  #print Dumper $ref;
+  
+  return (
+	  title => $ref->{PROJECT}->{TITLE},
+	  accession => $ref->{PROJECT}->{accession},
+	  alias => $ref->{PROJECT}->{alias},
+	  description => $ref->{PROJECT}->{DESCRIPTION},
+	  locustag => ((ref  $ref->{PROJECT}->{SUBMISSION_PROJECT}) ? $ref->{PROJECT}->{SUBMISSION_PROJECT}->{SEQUENCING_PROJECT}->{LOCUS_TAG_PREFIX} : undef)
+	  
+	 );
+
+
+}
+
 
 sub makesubmit {
   my ($action, $date, $target) = @_;
@@ -226,16 +311,48 @@ END_XML
   return $filename;
 }
 
+
+
+
+###################################### ENA API BEHAVIOR ######################################
+## The ENA API has the following dumb behavior:
+## - The TITLE and DESCRIPTION elements have to be present to validate
+## - If Title or Description element are present and empty, the content is DELETED
+## - IF Title and Description elements are present and unchanged, no change is applied because md5 is unchanged
+## - The change test ignores child projects that should be added to the umbrella
+
+## To preserve data integrity, we have to do the following:
+## - Retrieve the original values for Title and Description from the project if no values were provided by the user.
+## - To allow for an update to happen, we have to change something. We therefore will therefore append an update timestamp to the
+## - end of the Description field automatically if the description argument is not set.  
+
+sub changeDescription {
+  my $des = shift;
+  $des =~ s/ \-\- \(updated: .+\)$//g; # remove trailling timestamp
+  return $des.' '.$timestamp;
+}
+
+
 sub make_modify_project {
-  my ($what, $title, $description, $alias, $center, $parent, $children, $accession, $locusTag) = @_;
+  my ($what, $title, $description, $alias, $center,  $children, $accession, $locusTag) = @_;
   my $dir = tempdir( CLEANUP => !$keep );
   my ($fh, $filename) = tempfile('ENA-ModifyXXXXXXXXXX', DIR => $dir, SUFFIX => '.tmp' );
 
   my $children_xml = "";
   my $xml = "";
+
+  my %data = getObjectDataByAccession($accession, $URL_PREFIX);
+  $accession ||= $data{accession};
+  $title ||= $data{title};
+  $alias ||= $data{alias};
+  $description ||= changeDescription($data{description});
+  $locusTag ||= $data{locustag};
+  
+  
 $accession = ($accession) ?  qq( accession="$accession" ) : '';
 
-my @children = split ',', $children;
+  
+my @children = split ',', $children if defined $children;
 
 if (scalar @children) {
 
@@ -253,38 +370,50 @@ $ret }
 }
 if ($what eq 'umbrella' ) {
   
-$xml = <<"END_XML";
+  $xml = qq (
   <PROJECT_SET xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
     <PROJECT $accession center_name="$center" alias="$alias">
-        <TITLE>$title</TITLE>
-        <DESCRIPTION>$description</DESCRIPTION>
-        <UMBRELLA_PROJECT/>
-        <RELATED_PROJECTS>
+ ) .
+   (($title) ? "<TITLE>$title</TITLE>" : '<TITLE/>') ## This will DELETE the Title if empty!
+   .
+   (($description) ? "<DESCRIPTION>$description</DESCRIPTION>" : '<DESCRIPTION/>' ) ## Same with DESCRIPTION!
+   .
+   "<UMBRELLA_PROJECT/>\n"
+   .
+   ((@children) ? qq (<RELATED_PROJECTS>
           $children_xml
-        </RELATED_PROJECTS>
+        </RELATED_PROJECTS> 
+ ) : ' ')
+   . qq (
     </PROJECT>
 </PROJECT_SET>
-END_XML
+)
 
+
+
+   
 } elsif ($what eq 'project') {
-   $locusTag = "<LOCUS_TAG_PREFIX>$locusTag</LOCUS_TAG_PREFIX>" if $locusTag;
-   $xml = <<"END_XML";
-<PROJECT_SET>
+  $locusTag = "<LOCUS_TAG_PREFIX>$locusTag</LOCUS_TAG_PREFIX>" if $locusTag;
+  
+$xml = qq (
+  <PROJECT_SET xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
     <PROJECT $accession center_name="$center" alias="$alias">
-        <TITLE>$title</TITLE>
-        <DESCRIPTION>$description</DESCRIPTION>
+ ) .
+   (($title) ? "<TITLE>$title</TITLE>" : '<TITLE/>') ## This will DELETE the Title if empty!
+   .
+   (($description) ? "<DESCRIPTION>$description</DESCRIPTION>" : '<DESCRIPTION/>' ) ## Same with DESCRIPTION!
+   .
+  
+qq(
 <SUBMISSION_PROJECT>
    <SEQUENCING_PROJECT>
 $locusTag
     </SEQUENCING_PROJECT>
  </SUBMISSION_PROJECT>
-
-
     </PROJECT>
 </PROJECT_SET>
+)
 
-
-END_XML
    
  } else {
    die "Don't know what to do with this type";
@@ -318,6 +447,10 @@ This script is used to create, modify, and manage projects in the European Nucle
 The following actions are supported (case independent):
 
 =over 4
+
+=item B<SHOW>
+
+Show the XML code for a project. Note: Related projects cannot be retrieved from the API.
 
 =item B<ADD>
 
