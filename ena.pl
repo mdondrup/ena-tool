@@ -69,8 +69,8 @@ GetOptions(
 $action = uc $ARGV[0] or usage();
 usage() unless $allowed_actions{$action};
 $what = $ARGV[1];
-$center |= 'EBP Norway';
-$date |= $today;
+$center ||= 'EBP Norway';
+$date ||= $today;
 
 # Check required options
 unless ($action && $username && $password) {
