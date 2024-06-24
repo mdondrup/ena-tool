@@ -165,8 +165,6 @@ Projects can be identified by either their alias or accession. When creating a n
 
 =over 4
 
-=item B<There is no option to retrieve project data yet.>
-
 =item B<Include some internal validation>
 
 =item B<Include sample and run submission?>
