@@ -1,0 +1,201 @@
+=head1 NAME
+
+ena.pl - Create and manage projects in the European Nucleotide Archive (ENA)
+
+=head1 SYNOPSIS
+
+ena.pl [ACTION] [umbrella|project] [OPTIONS]
+
+=head1 DESCRIPTION
+
+This script is used to create, modify, and manage projects in the European Nucleotide Archive (ENA). It supports various actions such as ADD, MODIFY, CANCEL, SUPPRESS, KILL, HOLD, RELEASE, ROLLBACK, VALIDATE, and RECEIPT.
+
+=head1 ACTIONS
+
+The following actions are supported (case independent):
+
+=over 4
+
+=item B<SHOW>
+
+Show the XML code for a project. Note: Related projects cannot be retrieved from the API.
+
+=item B<ADD>
+
+Add a new project.
+
+=item B<MODIFY>
+
+Modify an existing project.
+
+=item B<CANCEL>
+
+Cancel a project.
+
+=item B<KILL>
+
+Kill a project.
+
+=item B<HOLD>
+
+Hold a project until a specified date.
+
+=item B<RELEASE>
+
+Release a project.
+
+=item B<ROLLBACK>
+
+Rollback a project.
+
+=item B<VALIDATE>
+
+TODO: Validate a project. Not supported yet.
+
+=item B<RECEIPT>
+
+Receive a receipt of the project submission.
+
+=back
+
+=head1 OPTIONS
+
+=over 4
+
+=item B<--alias> I<ALIAS>
+
+Specify the alias for the project.
+
+=item B<--description> I<DESCRIPTION>
+
+Provide a description for the project.
+
+=item B<--title> I<TITLE>
+
+Specify the title of the project.
+
+=item B<--username> I<USERNAME>
+
+Provide the username for authentication.
+
+=item B<--password> I<PASSWORD>
+
+Provide the password for authentication.
+
+=item B<--locustagprefix> I<LOCUSTAGPREFIX>
+
+Specify the locus tag prefix (only supported on production system).
+
+=item B<--center> I<CENTER>
+
+Specify the center name. Defaults to 'EBP Norway'.
+
+=item B<--releasedate> I<RELEASEDATE>
+
+Specify the release date for the project. (Format YYYY-MM-DD) Default: TODAY
+
+=item B<--children> I<CHILDREN>
+
+Specify the children projects, separated by commas.
+
+=item B<--receipt> I<RECEIPT>
+
+Save the receipt to a file.
+
+=item B<--accession> I<ACCESSION>
+
+Specify the accession for the project.
+
+=item B<--keeptemp>
+
+Keep temporary XML control files.
+
+=item B<--production>
+
+Run the script on the production system. By default the test system is used
+
+=item B<--verbose>
+
+Enable verbose output. IF not verbose, only the acession of an successfuly created project will be printed to STDOUT.
+
+=item B<--help>
+
+Print this help message.
+
+=back
+
+=head1 DETAILS
+
+This script provides simplyfied commandline client to the ENA Project API.
+
+ It allows to create umbrella projects and allows to 
+link submission projects to an umbrella. Note, that there is no client-side sanity checking. All error checking is done on the ENA side. It is not possible to turn a submission project into an umbrella project and vice-versa. Some changes may not be reversible, e.g.child projects cannot be unlinked from an umbrella without contacting support and published projects cannot be unpublished.
+
+Unless verbose is activated, the script will only print the accession of a successfully created project to STDOUT. INFO and ERROR messages are printed on STDERR.
+
+The script exits with code 0 if the operation was succesful, 1 otherwise. 
+
+Projects can be identified by either their alias or accession. When creating a new project, a unique alias must be provided.
+
+
+=head1 EXAMPLES
+
+=over 4
+
+=item B<Add a new project>
+
+  ena.pl ADD project --alias "project_alias" --description "Project description" --title "Project Title" \
+  --username "your_username" --password "your_password"
+
+=item B<Modify an existing project>
+
+  ena.pl MODIFY project --alias "project_alias" --description "Updated description" --title "Updated Title"\
+   --username "your_username" --password "your_password" --accession "accession_number"
+
+=item B<Add projects to an umbrella project>
+
+   ena.pl MODIFY umbrella --accession "umbrella_project_accession" --description "Umbrella Project Description" \
+   --title "Umbrella Project Title" --username "your_username" --password "your_password" \
+   --children "child_project_accession_1,child_project_accession_2"
+
+
+=back
+
+=head1 TODO
+
+=over 4
+
+=item B<There is no option to retrieve project data yet.>
+
+=item B<Include some internal validation>
+
+=item B<Include sample and run submission?>
+
+=back
+
+=head1 AUTHOR
+
+Michael Dondrup (michael.dondrup < at > uib.no)
+
+=head1 COPYRIGHT AND LICENSE
+
+
+BSD 2-Clause License
+
+Copyright (c) 2024, Michael Dondrup
+
+All rights reserved.
+
+Redistribution and use in source and binary forms, with or without modification, are permitted provided that the following conditions are met:
+
+=over 4
+
+=item 1. Redistributions of source code must retain the above copyright notice, this list of conditions and the following disclaimer.
+
+=item 2. Redistributions in binary form must reproduce the above copyright notice, this list of conditions and the following disclaimer in the documentation and/or other materials provided with the distribution.
+
+=back
+
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
+=cut
