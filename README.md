@@ -21,11 +21,12 @@ Don't need to install anything, but just in case.
 - 'POSIX';
 - 'XML::Simple';
 - 'File::Temp';
-- 'Data::Dumper';
   
     
 
 ## Documentation 
+
+See https://github.com/mdondrup/ena-tool/blob/main/README.pod
 
 Inline POD documentation, run: 
 
