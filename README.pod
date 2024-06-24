@@ -128,7 +128,7 @@ Print this help message.
 
 This script provides simplyfied commandline client to the ENA Project API.
 
- It allows to create umbrella projects and allows to 
+It allows to create umbrella projects and to 
 link submission projects to an umbrella. Note, that there is no client-side sanity checking. All error checking is done on the ENA side. It is not possible to turn a submission project into an umbrella project and vice-versa. Some changes may not be reversible, e.g.child projects cannot be unlinked from an umbrella without contacting support and published projects cannot be unpublished.
 
 Unless verbose is activated, the script will only print the accession of a successfully created project to STDOUT. INFO and ERROR messages are printed on STDERR.
