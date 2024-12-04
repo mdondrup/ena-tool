@@ -590,7 +590,7 @@ Projects can be identified by either their alias or accession. When creating a n
    --title "Umbrella Project Title" --username "your_username" --password "your_password" \
    --children "child_project_accession_1,child_project_accession_2"
 
-=item B<Release any ENA object with an accession>
+=item B<Release any ENA object with an accession and show XML request>
 
    ena.pl RELEASE object --accession ERZXXXXXXX  --username user --pass "pass" -prod --verbose --releasedate 2024-12-01
 
