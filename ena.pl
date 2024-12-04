@@ -315,14 +315,14 @@ END_XML
 
 
 ###################################### ENA API BEHAVIOR ######################################
-## The ENA API has the following dumb behavior:
+## The ENA API has the following -idiosyncratic/simplistic/inflexible- behavior:
 ## - The TITLE and DESCRIPTION elements have to be present to validate
 ## - If Title or Description element are present and empty, the content is DELETED
 ## - IF Title and Description elements are present and unchanged, no change is applied because md5 is unchanged
 ## - The change test ignores child projects that should be added to the umbrella
 
 ## To preserve data integrity, we have to do the following:
-## - Retrieve the original values for Title and Description from the project if no values were provided by the user.
+## - Retrieve the original values for Title and Description from the project if no values provided by the user.
 ## - To allow for an update to happen, we have to change something. We therefore will therefore append an update timestamp to the
 ## - end of the Description field automatically if the description argument is not set.  
 
