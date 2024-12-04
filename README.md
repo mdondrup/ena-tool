@@ -1,7 +1,8 @@
 # ena-tool
-A simple command-line tool to create and manage ENA projects.
+A simple command-line tool to create and manage ENA projects and object.
 
 A Perl script that allows to create submission projects and umbrella projects in ENA.
+Also: can send any status change request to the XML api.
 
 ## Installation
 
