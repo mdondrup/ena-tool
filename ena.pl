@@ -77,8 +77,8 @@ unless ($action && $username && $password) {
   warn "action, username and password required\n";
   usage();
 }
-if  ( $what && $what !~ /^umbrella|project$/ ) {
-  warn "<what> must be one of 'umbrella' or 'project'\n";
+if  ( $what && $what !~ /^umbrella|project|object$/ ) {
+  warn "<what> must be one of 'umbrella', 'project', or 'object'\n";
   usage();
 }
 
@@ -440,7 +440,7 @@ ena.pl [ACTION] [umbrella|project] [OPTIONS]
 
 =head1 DESCRIPTION
 
-This script is used to create, modify, and manage projects in the European Nucleotide Archive (ENA). It supports various actions such as ADD, MODIFY, CANCEL, SUPPRESS, KILL, HOLD, RELEASE, ROLLBACK, VALIDATE, and RECEIPT.
+This script is used to create, modify, and manage projects in the European Nucleotide Archive (ENA). It also supports various actions such as ADD, MODIFY, CANCEL, SUPPRESS, KILL, HOLD, RELEASE, ROLLBACK, VALIDATE, and RECEIPT on any object.
 
 =head1 ACTIONS
 
@@ -474,7 +474,7 @@ Hold a project until a specified date.
 
 =item B<RELEASE>
 
-Release a project.
+Release a project or any object.
 
 =item B<ROLLBACK>
 
@@ -558,7 +558,7 @@ Print this help message.
 
 =head1 DETAILS
 
-This script provides simplyfied commandline client to the ENA Project API.
+This script provides simplyfied commandline client to the ENA Project and object API.
 
  It allows to create umbrella projects and allows to 
 link submission projects to an umbrella. Note, that there is no client-side sanity checking. All error checking is done on the ENA side. It is not possible to turn a submission project into an umbrella project and vice-versa. Some changes may not be reversible, e.g.child projects cannot be unlinked from an umbrella without contacting support and published projects cannot be unpublished.
@@ -589,6 +589,10 @@ Projects can be identified by either their alias or accession. When creating a n
    ena.pl MODIFY umbrella --accession "umbrella_project_accession" --description "Umbrella Project Description" \
    --title "Umbrella Project Title" --username "your_username" --password "your_password" \
    --children "child_project_accession_1,child_project_accession_2"
+
+=item B<Release any ENA object with an accession>
+
+   ena.pl RELEASE object --accession ERZXXXXXXX  --username user --pass "pass" -prod --verbose --releasedate 2024-12-01
 
 
 =back
