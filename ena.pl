@@ -10,7 +10,7 @@ use Pod::Usage;
 use POSIX qw(strftime);
 use XML::Simple qw (:strict);
 use utf8;
-
+use File::Temp qw(tempfile tempdir); 
 
 my $today = strftime "%Y-%m-%d", localtime;
 my $timestamp = strftime "-- (updated: %Y-%m-%d %T %Z)", localtime; # Generate a timestamp to append to description for modifications
@@ -26,7 +26,7 @@ $ua->timeout($serverTimeout);
 #$ua->agent("");
 
 
-use File::Temp qw(tempfile tempdir); 
+
 
 # Usage message
 sub usage {
@@ -44,32 +44,33 @@ sub usage {
 ## *: not supported by ENA API
 ######
 
-my %allowed_actions = qw(SHOW 1 ADD 1 MODIFY 1 CANCEL 1 SUPPRESS 0 KILL 0 HOLD 1 RELEASE 1 PROTECT 0 ROLLBACK 1 VALIDATE 1 RECEIPT 1 HAP2_UMBRELLA 1);
+my %allowed_actions = qw(SHOW 1 ADD 1 MODIFY 1 CANCEL 1 SUPPRESS 0 KILL 0 HOLD 1 RELEASE 1 PROTECT 0 ROLLBACK 1 VALIDATE 1 RECEIPT 1 HAP2_UMBRELLA 1 EBP-NOR_UMBRELLA 1);
 
 my ($action, $what, $alias, $description, $children, $parent, $title, $verbose, $date, $center,
-    $username, $password, $receipt, $locusTag, $accession, $keep, $production);
+    $username, $password, $receipt, $locusTag, $accession, $keep, $master_umbrella, $production);
 GetOptions(    
-	   'alias=s'       => \$alias,
-	   'description=s' => \$description,
-	   'title=s' => \$title,
-	   'username=s'    => \$username,
-	   'password=s'    => \$password,
-	   'locustagprefix=s' => \$locusTag, ## only works on productions
-	   'center=s' => \$center,
-	   'releasedate=s' => \$date,
-	   'children=s' => \$children,
-	   'receipt=s' => \$receipt, # save the receipt to file
-	   'accession=s' => \$accession,
-	   'keeptemp' => \$keep, # keep temporary xml control files
-	   'production' => \$production, # really do it on the production system, otherwise
-	   'verbose' => \$verbose, # if not verbose, the only thing STDOUT is the accession of the project if success
-	   'help|?'        => \&usage,
+     'alias=s'       => \$alias,
+     'description=s' => \$description,
+     'title=s' => \$title,
+     'username=s'    => \$username,
+     'password=s'    => \$password,
+     'locustagprefix=s' => \$locusTag, ## only works on productions
+     'center=s' => \$center,
+     'releasedate=s' => \$date,
+     'children=s' => \$children,
+     'receipt=s' => \$receipt, # save the receipt to file
+     'accession=s' => \$accession, # accession of the project to modify or show
+     'master_umbrella=s' => \$master_umbrella, # master project to link to, used with hap2 umbrella projects only
+     'keeptemp' => \$keep, # keep temporary xml control files
+     'production' => \$production, # really do it on the production system, otherwise
+     'verbose' => \$verbose, # if not verbose, the only thing STDOUT is the accession of the project if success
+     'help|?'        => \&usage,
 ) or usage();
 
 $action = uc $ARGV[0] or usage();
 usage() unless $allowed_actions{$action};
 $what = $ARGV[1];
-$center ||= 'EBP Norway';
+$center ||= 'EBP-Norway';
 $date ||= $today;
 
 # Check required options
@@ -96,9 +97,12 @@ my $encoded_credentials = encode_base64("$username:$password", '');
 my ($submit_file, $project_file);
 
 if ($action eq 'SHOW') {
-### "https://wwwdev.ebi.ac.uk/ena/submit/drop-box/projects/PRJEB704?format=xml
+ ###"https://wwwdev.ebi.ac.uk/ena/submit/drop-box/projects/PRJEB704?format=xml
   usage() unless $accession;
-  $url .= 'projects/'.($accession).'?format=xml'
+  $url .= 'projects/'.($accession).'?format=xml';
+  send_request($action, $url, undef, undef);
+  # For SHOW, we do not need a submit file or project file
+
 } else {
 
   $url .= 'submit';
@@ -106,6 +110,9 @@ if ($action eq 'SHOW') {
   if ($action eq 'ADD') {
     ### we should check if the project exists already... This can only be done based on alias
     $submit_file = makesubmit($action, $date);
+    die "Missing alias for project" unless $alias;
+    die "Missing title for project" unless $title;
+    die "Missing description for project" unless $description;
     $project_file = makeproject($what, $title, $description, $alias, $center, $locusTag);
     send_request($action, $url, $submit_file, $project_file);
     
@@ -115,36 +122,80 @@ if ($action eq 'SHOW') {
     $submit_file = makesubmit($action, $date);
     $project_file = make_modify_project($what, $title, $description, $alias, $center,  $children, $accession, $locusTag);
     send_request($action, $url, $submit_file, $project_file);
-  } elsif ($action eq 'HAP2_UMBRELLA') {
-    # Copy the project data from the hap1 project to the submission project
+  } elsif ($action eq 'HAP2_UMBRELLA' || $action eq 'EBP-NOR_UMBRELLA') {
+    # Copy the project data from the hap1 project to the hap2 submission project
+    # This is a special case for creating umbrella projects from HAP1 projects
+    # The HAP1 project is copied to a new HAP2 project, and then an umbrella project is created
+    # The umbrella project is linked to the HAP2 project and the HAP1 project
+    # TODO: This is a rather complex operation, we should probably refactor this into a separate function
+
+if ($action eq 'EBP-NOR_UMBRELLA') {
+    # set some sensible defaults for the EBP-Nor umbrella project
+    $title ||= '@SPECIES@ @COMMON_NAME@'; # default title, will be replaced with species name
+    $description ||= 'This project collects the sequencing data and assemblies generated for @SPECIES@ by EBP-Nor, the Norwegian initiative for the Earth Biogenome Project (https://www.ebpnor.org/english/).';
+    $master_umbrella ||= 'PRJEB65317'; # EBP-Nor master umbrella project
+}
+
     my $species = '';
-    ($project_file, $species) = copyHap2Project($what, $accession, $URL_PREFIX);
+    my $common_name = '';
+  
+    die "Missing accession for HAP1 project" unless $accession;
+    die "Missing title for umbrella project" unless $title;
+    ($project_file, $species, $common_name) = copyHap2Project($what, $accession, $URL_PREFIX);
+    die "Failed to copy HAP1 project $accession" unless $project_file;
+    die "Failed to determine species from HAP1 project $accession" unless $species;
+    die "Failed to determine common name from HAP1 project $accession. For EBP-NOR project the title must be to formated exactly as 'Genus species (common name)' " if $action eq 'EBP-NOR_UMBRELLA' && !$common_name;
     $submit_file = makesubmit('ADD', $date);
     my $proj2_acc = send_request('ADD', $url, $submit_file, $project_file);
     if ($proj2_acc) {
-      print "Project $proj2_acc created from HAP1 project $accession with species $species\n";
+      print "\nProject $proj2_acc created from HAP1 project $accession with species $species\n";
     } else {
       die "Failed to create project from HAP1 project $accession\n";
     }
     # Create a new umbrella project with the same alias as the HAP1 project
     $description =~ s/\@SPECIES\@/$species/g if ($description && $species);
-    $title =~ s/\@SPECIES\@/$species/g if ($title && $species);  
-    my $project_file1 = makeproject('umbrella', $$title, $description, $alias, $center);
+    $title =~ s/\@SPECIES\@/$species/g if ($title && $species);
+    $title =~ s/\@COMMON_NAME\@/$common_name/g if ($title && $common_name);
+    $alias ||= $species.'_umbrella'; # default alias is species_umbrella
+    $alias =~ s/\s/_/g; # replace spaces with underscores
+    $alias =~ s/[^a-zA-Z0-9_]/_/g; # remove non-alphanumeric characters
+    $alias = lc $alias; # make alias lowercase  
+    my $project_file1 = makeproject('umbrella', $title, $description, $alias, $center);
     my $submit_file1 = makesubmit('ADD', $date);
     my $umbrella_acc = send_request('ADD', $url, $submit_file1, $project_file1);
     if ($umbrella_acc) {
-      print "Umbrella project $umbrella_acc created with alias $alias and species $species\n";
+      print "\nUmbrella project $umbrella_acc created with alias $alias and species $species\n";
       # Link the new umbrella project to the HAP2 project
       my $submit_file2 = makesubmit('MODIFY', $date);
       my $project_file2 = make_modify_project('umbrella', undef, undef, undef, $center, "$accession,$proj2_acc", $umbrella_acc);
-      send_request('MODIFY', $url, $submit_file2, $project_file2);
+      my $umbrella_acc2 = send_request('MODIFY', $url, $submit_file2, $project_file2);
+      if ($umbrella_acc2 && $umbrella_acc2 eq $umbrella_acc) {
+        # Successfully linked the umbrella project to the HAP2 project
+        print "\nUmbrella project $umbrella_acc linked to HAP1 project $accession and HAP2 project $proj2_acc\n";
+      } else {
+        die "Failed to link umbrella project $umbrella_acc to HAP2 project $proj2_acc\n";
+      }
     } else {
       die "Failed to create umbrella project from HAP1 project $accession\n";
     }
-  } else {
+    if ($master_umbrella) {
+      # Link the new umbrella project to the master umbrella project
+      my $submit_file3 = makesubmit('MODIFY', $date);
+      my $project_file3 = make_modify_project('umbrella', undef, undef, undef, $center, $umbrella_acc, $master_umbrella);
+      my $master_umbrella2 = send_request('MODIFY', $url, $submit_file3, $project_file3);
+      if ($master_umbrella2 && $master_umbrella2 eq $master_umbrella) {
+        # Successfully linked the new umbrella project to the master umbrella project
+        print "\nUmbrella project $umbrella_acc linked to master umbrella project $master_umbrella\n";
+      } else {
+        die "Failed to link umbrella project $umbrella_acc to master umbrella project $master_umbrella\n";
+      }
+    }
+  } elsif ($action eq 'CANCEL' || $action eq 'SUPPRESS' || $action eq 'KILL' || $action eq 'HOLD' || 
+      $action eq 'RELEASE' || $action eq 'ROLLBACK' || $action eq 'VALIDATE' || $action eq 'RECEIPT') {
+    # For these actions, we need a submit file but no project file
+    die "Missing accession for action $action" unless $accession;
     $submit_file = makesubmit($action, $date, $accession);
     send_request($action, $url, $submit_file, undef);
-    # For actions like CANCEL, KILL, HOLD, RELEASE, ROLLBACK, VALIDATE, RECEIPT, we do not need a project file
 
   }
 }
@@ -154,10 +205,12 @@ if ($action eq 'SHOW') {
 ## Send the request to ENA  
 sub send_request {
   my ($action, $url, $submit_file, $project_file) = @_;
-  die "Missing URL or submit file" unless $url && $submit_file;
+  die "Missing URL or submit file" unless $action eq 'SHOW' || ($url && $submit_file);
   die "Missing project file" if ($action ne 'SHOW' && !$project_file);
   die "Missing action" unless $action;
   die "Action $action not supported" unless $allowed_actions{$action};
+  die "Missing username or password" unless $username && $password;
+  
 my $request = ($action eq 'SHOW') ?
   GET $url, Authorization => "Basic $encoded_credentials"
   :
@@ -169,7 +222,7 @@ my $request = ($action eq 'SHOW') ?
 	      PROJECT => ["$project_file"],
 	     ],
   Authorization => "Basic $encoded_credentials";
-			    
+die "empty request" unless $request;			    
 print $request->as_string if $verbose;
 
 my $response;
@@ -273,7 +326,7 @@ sub getObjectDataByAccession {
 sub makesubmit {
   my ($action, $date, $target) = @_;
   my $dir = tempdir( CLEANUP => !$keep );
-  my ($fh, $filename) = tempfile('ENA-SubmissionXXXXXXXXXX', DIR => $dir, SUFFIX => '.tmp' );
+  my ($fh, $filename) = tempfile("ENA-Submission-$action-XXXXXXXXXX", DIR => $dir, SUFFIX => '.tmp' );
   $action = uc $action;
   my $hold = qq( <ACTION>
          <HOLD HoldUntilDate="$date"/>
@@ -317,8 +370,9 @@ sub makeproject {
   my ($what, $title, $description, $alias, $center, $locusTag) = @_;
   my $dir = tempdir( CLEANUP => !$keep );
   $locusTag |= '';
-  my ($fh, $filename) = tempfile('ENA-ProjectXXXXXXXXXX', DIR => $dir, SUFFIX => '.tmp' );
-  $locusTag = "<LOCUS_TAG_PREFIX>$locusTag</LOCUS_TAG_PREFIX>" if $locusTag;
+  $alias ||= '';
+  my ($fh, $filename) = tempfile('ENA-Project-XXXXXXXXXX', DIR => $dir, SUFFIX => '.tmp' );
+  $locusTag = "<LOCUS_TAG_PREFIX>$locusTag</LOCUS_TAG_PREFIX>" if $production && $locusTag; # locusTag only works on production system
   my $subm_xml = <<"END_XML";
 <SUBMISSION_PROJECT>
    <SEQUENCING_PROJECT>
@@ -350,21 +404,31 @@ sub copyHap2Project {
   my ($what, $accession, $url) = @_;
   die "Missing from or to project" unless $what && $accession;
   my %data = getObjectDataByAccession($accession, $url);
-  
-  die "This appears to be a HAP2 project already, cannot copy it" if $data{title} =~ /alternate haplotype/i || $data{locustag} =~ /EN2$/;
+  die "Cannot retrieve data for project $accession" unless %data;
+  ## Check if the project is a valid HAP1 project and contains the required fields before doing anything
+  die "Source project to duplicate must have a valid accession" unless $data{accession};
+  die "Source project to duplicate must have a valid title" unless $data{title};
+  die "Source project to duplicate must have a valid description" unless $data{description};
+  die "Source project to duplicate must have a valid alias" unless $data{alias};
+  die "Source project to duplicate must hav a valid locustag (matching /EN1|HAP1/)" unless !$production or $data{locustag} && $data{locustag} =~ /EN1|HAP1/;
+  die "This appears to be a HAP2 project already (title must not contain \"alternate haplotype\"), cannot copy it" if $data{title} =~ /alternate\s*haplotype/i;
+  $data{center} ||= $center; # default center name
  # Try to get the species from the title or description
   my $species = '';
-  if ($data{title} && $data{title} =~ /^(\w+ \w+ (\w+)?)\s*/) {
+  my $common_name = '';
+  if ($data{title} && $data{title} =~ /^(\w+ \w+( \w+)?)\s*(\([\w\s]+\))?/) {
     $species = $1;
+    $common_name = $3 || '';
   } else {
-    die "Cannot determine species from title of project $accession";
+    die "Cannot determine species from title of project $accession, title: $title";
   }
   $data{title} .= ", alternate haplotype";
   $data{description} =~ s/(genome\s*)?assembly/alternate haplotype genome assembly/i if $data{description};
   $data{locustag} =~ s/EN1$/EN2/ if $data{locustag}; # change locus tag prefix to EN2
+  $data{locustag} =~ s/HAP1$/HAP2/ if $data{locustag}; # change locus tag prefix to HAP2
   $data{alias} .= '_hap2' if $data{alias}; # change alias prefix to EN2
   my $filename = makeproject($what, $data{title}, $data{description}, $data{alias}, $data{center}, $data{locustag});
-  return ($filename, $species); # return the project file and species
+  return ($filename, $species, $common_name); # return the project file and species
 }
 
 
