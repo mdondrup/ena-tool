@@ -606,6 +606,15 @@ TODO: Validate a project. Not supported yet.
 
 Receive a receipt of the project submission.
 
+=item B<HAP2_UMBRELLA>
+
+Create a new umbrella project for a HAP2 (alternate haplotype) project, based on an existing HAP1 project. This action duplicates the HAP1 project as a HAP2 project, creates an umbrella project, and links both HAP1 and HAP2 projects under the new umbrella.
+
+=item B<EBP-NOR_UMBRELLA>
+
+Create a new umbrella project for the EBP-Norway initiative, based on an existing HAP1 project. This action works like HAP2_UMBRELLA, but applies EBP-Norway-specific defaults for title, description, and master umbrella linkage.
+
+
 =back
 
 =head1 OPTIONS
@@ -656,6 +665,10 @@ Save the receipt to a file.
 
 Specify the accession for the project.
 
+=item B<--master_umbrella> I<MASTER_UMBRELLA>
+
+Specify the accession of a master umbrella project to which the new umbrella project should be linked. This option is used with the HAP2_UMBRELLA and EBP-NOR_UMBRELLA actions to create hierarchical umbrella project relationships.
+
 =item B<--keeptemp>
 
 Keep temporary XML control files.
@@ -678,14 +691,67 @@ Print this help message.
 
 This script provides simplyfied commandline client to the ENA Project and object API.
 
- It allows to create umbrella projects and allows to 
-link submission projects to an umbrella. Note, that there is no client-side sanity checking. All error checking is done on the ENA side. It is not possible to turn a submission project into an umbrella project and vice-versa. Some changes may not be reversible, e.g.child projects cannot be unlinked from an umbrella without contacting support and published projects cannot be unpublished.
+It allows to create umbrella projects and allows to link submission projects to an umbrella. 
+Note, that there is no client-side sanity checking. All error checking is done on the ENA side. 
+It is not possible to turn a submission project into an umbrella project and vice-versa. 
+Some changes may not be reversible, e.g.child projects cannot be unlinked from an umbrella without contacting support and published projects cannot be unpublished.
 
 Unless verbose is activated, the script will only print the accession of a successfully created project to STDOUT. INFO and ERROR messages are printed on STDERR.
 
 The script exits with code 0 if the operation was succesful, 1 otherwise. 
 
 Projects can be identified by either their alias or accession. When creating a new project, a unique alias must be provided.
+
+The HAP2_UMBRELLA and EBP-NOR_UMBRELLA action in this script are designed to facilitate the creation of a new umbrella project for a HAP2 (alternate haplotype) project, using an existing HAP1 project as a template. When you use this action, the script performs several steps automatically:
+
+Duplicate the HAP1 Project: It copies the metadata from the specified HAP1 project (such as title, description, alias, and locus tag), modifies relevant fields to indicate that this is a HAP2 (alternate haplotype) project, and creates a new HAP2 project in ENA.
+
+Create an Umbrella Project: It then creates a new umbrella project, using the species name as part of the alias and title, and links both the original HAP1 and the new HAP2 projects under this umbrella.
+
+Link Projects: The script ensures that both the HAP1 and HAP2 projects are registered as children of the new umbrella project, establishing a clear relationship between them in ENA.
+This action streamlines the process of managing alternate haplotype assemblies by automating the duplication, creation, and linking steps, reducing manual effort and minimizing the risk of errors.
+
+When passing description and title to the HAP2_UMBRELLA action, placeholders like @SPECIES@ and @COMMON_NAME@ can be used. 
+The script will replace these placeholders with the actual species name and common name derived from the HAP1 project title. 
+We assume that the HAP1 project title is formatted as "Genus species (common name)", 
+where "Genus species" is the scientific name of the species and "common name" is the common name in parentheses.
+This ensures that the umbrella project is correctly named and described based on the species being studied.
+
+When using the EBP-NOR_UMBRELLA action, the script applies specific defaults for the EBP-Norway initiative, 
+such as setting the title and description to include the species name and linking to a master umbrella project (PRJEB65317).
+
+
+=head1 DEPENDENCIES
+This script requires the following Perl modules:
+
+=over 4
+
+=item L<Getopt::Long>
+
+=item L<LWP::UserAgent>
+
+=item L<HTTP::Request::Common>
+
+=item L<MIME::Base64>
+
+=item L<Pod::Usage>
+
+=item L<POSIX>
+
+=item L<XML::Simple>
+
+=item L<File::Temp>
+
+=back
+
+=head1 LIMITATIONS
+
+This script does not currently support submitting or retrieving raw project data from ENA.
+It is primarily focused on creating and modifying projects and umbrella projects.
+It does not include sample or run submission functionality at this time.
+
+=head1 BUGS AND ISSUES
+Please report any bugs or issues to the author or maintainers of this script.
 
 
 =head1 EXAMPLES
@@ -711,6 +777,16 @@ Projects can be identified by either their alias or accession. When creating a n
 =item B<Release any ENA object with an accession and show XML request>
 
    ena.pl RELEASE object --accession ERZXXXXXXX  --username user --pass "pass" -prod --verbose --releasedate 2024-12-01
+
+=item B<Create a new umbrella project for a HAP2 project>
+  ena.pl HAP2_UMBRELLA umbrella --accession "HAP1_project_accession" --username "your_username" --password "your_password" \
+  --title "@SPECIES@ Umbrella Project" --description "This is an umbrella project for @SPECIES@" \
+  --master_umbrella "PRJEB65317"
+
+=item B<Create a new umbrella project for EBP-Norway>
+  ena.pl EBP-NOR_UMBRELLA umbrella --accession "HAP1_project_accession" --username "your_username" --password "your_password" 
+  
+
 
 
 =back
