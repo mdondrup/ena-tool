@@ -44,7 +44,7 @@ sub usage {
 ## *: not supported by ENA API
 ######
 
-my %allowed_actions = qw(SHOW 1 ADD 1 MODIFY 1 CANCEL 1 SUPPRESS 0 KILL 0 HOLD 1 RELEASE 1 PROTECT 0 ROLLBACK 1 VALIDATE 1 RECEIPT 1);
+my %allowed_actions = qw(SHOW 1 ADD 1 MODIFY 1 CANCEL 1 SUPPRESS 0 KILL 0 HOLD 1 RELEASE 1 PROTECT 0 ROLLBACK 1 VALIDATE 1 RECEIPT 1 HAP2_UMBRELLA 1);
 
 my ($action, $what, $alias, $description, $children, $parent, $title, $verbose, $date, $center,
     $username, $password, $receipt, $locusTag, $accession, $keep, $production);
@@ -107,19 +107,57 @@ if ($action eq 'SHOW') {
     ### we should check if the project exists already... This can only be done based on alias
     $submit_file = makesubmit($action, $date);
     $project_file = makeproject($what, $title, $description, $alias, $center, $locusTag);
+    send_request($action, $url, $submit_file, $project_file);
     
     
   } elsif ($action eq 'MODIFY') {
     
     $submit_file = makesubmit($action, $date);
     $project_file = make_modify_project($what, $title, $description, $alias, $center,  $children, $accession, $locusTag);
-
+    send_request($action, $url, $submit_file, $project_file);
+  } elsif ($action eq 'HAP2_UMBRELLA') {
+    # Copy the project data from the hap1 project to the submission project
+    my $species = '';
+    ($project_file, $species) = copyHap2Project($what, $accession, $URL_PREFIX);
+    $submit_file = makesubmit('ADD', $date);
+    my $proj2_acc = send_request('ADD', $url, $submit_file, $project_file);
+    if ($proj2_acc) {
+      print "Project $proj2_acc created from HAP1 project $accession with species $species\n";
+    } else {
+      die "Failed to create project from HAP1 project $accession\n";
+    }
+    # Create a new umbrella project with the same alias as the HAP1 project
+    $description =~ s/\@SPECIES\@/$species/g if ($description && $species);
+    $title =~ s/\@SPECIES\@/$species/g if ($title && $species);  
+    my $project_file1 = makeproject('umbrella', $$title, $description, $alias, $center);
+    my $submit_file1 = makesubmit('ADD', $date);
+    my $umbrella_acc = send_request('ADD', $url, $submit_file1, $project_file1);
+    if ($umbrella_acc) {
+      print "Umbrella project $umbrella_acc created with alias $alias and species $species\n";
+      # Link the new umbrella project to the HAP2 project
+      my $submit_file2 = makesubmit('MODIFY', $date);
+      my $project_file2 = make_modify_project('umbrella', undef, undef, undef, $center, "$accession,$proj2_acc", $umbrella_acc);
+      send_request('MODIFY', $url, $submit_file2, $project_file2);
+    } else {
+      die "Failed to create umbrella project from HAP1 project $accession\n";
+    }
   } else {
     $submit_file = makesubmit($action, $date, $accession);
-    #$project_file = make_modify_project($what, $title, $description, $alias, $center, $parent, $children, $accession);
+    send_request($action, $url, $submit_file, undef);
+    # For actions like CANCEL, KILL, HOLD, RELEASE, ROLLBACK, VALIDATE, RECEIPT, we do not need a project file
+
   }
 }
 
+################################################## Subroutines ####################################################
+
+## Send the request to ENA  
+sub send_request {
+  my ($action, $url, $submit_file, $project_file) = @_;
+  die "Missing URL or submit file" unless $url && $submit_file;
+  die "Missing project file" if ($action ne 'SHOW' && !$project_file);
+  die "Missing action" unless $action;
+  die "Action $action not supported" unless $allowed_actions{$action};
 my $request = ($action eq 'SHOW') ?
   GET $url, Authorization => "Basic $encoded_credentials"
   :
@@ -130,15 +168,11 @@ my $request = ($action eq 'SHOW') ?
 	      SUBMISSION => ["$submit_file"],
 	      PROJECT => ["$project_file"],
 	     ],
-  Authorization => "Basic $encoded_credentials"
-  ;
+  Authorization => "Basic $encoded_credentials";
 			    
-
 print $request->as_string if $verbose;
 
 my $response;
-
-
 
 $response = retry_request($request, $maxRetries);
 
@@ -154,7 +188,7 @@ if ($response->is_success) {
 } else {
   die "Error communicating with ENA: " . $response->status_line . "\n" .$response->decoded_content. "\n";
  
-  }
+}
 
 my $ref = XMLin($response->decoded_content, KeyAttr => {  }, ForceArray => [  'ERROR', 'INFO' ]);
 
@@ -178,9 +212,12 @@ if ($ref->{PROJECT}->{accession} || $action eq 'SHOW' || $ref->{success} && $ref
   die join "\n", @{$ref->{MESSAGES}->{ERROR}} if ref $ref->{MESSAGES}->{ERROR} ;
 }
 
+  
+ return $ref->{PROJECT}->{accession}; 
+}
 
 
-################################################## Subroutines ####################################################
+
 
 ### Server time-out issues.... on dev at least
 
@@ -301,8 +338,6 @@ END_XML
     </PROJECT>
 </PROJECT_SET>
 END_XML
-
-
     
   print $fh $xml;
   close ($fh);
@@ -311,7 +346,26 @@ END_XML
   return $filename;
 }
 
-
+sub copyHap2Project {
+  my ($what, $accession, $url) = @_;
+  die "Missing from or to project" unless $what && $accession;
+  my %data = getObjectDataByAccession($accession, $url);
+  
+  die "This appears to be a HAP2 project already, cannot copy it" if $data{title} =~ /alternate haplotype/i || $data{locustag} =~ /EN2$/;
+ # Try to get the species from the title or description
+  my $species = '';
+  if ($data{title} && $data{title} =~ /^(\w+ \w+ (\w+)?)\s*/) {
+    $species = $1;
+  } else {
+    die "Cannot determine species from title of project $accession";
+  }
+  $data{title} .= ", alternate haplotype";
+  $data{description} =~ s/(genome\s*)?assembly/alternate haplotype genome assembly/i if $data{description};
+  $data{locustag} =~ s/EN1$/EN2/ if $data{locustag}; # change locus tag prefix to EN2
+  $data{alias} .= '_hap2' if $data{alias}; # change alias prefix to EN2
+  my $filename = makeproject($what, $data{title}, $data{description}, $data{alias}, $data{center}, $data{locustag});
+  return ($filename, $species); # return the project file and species
+}
 
 
 ###################################### ENA API BEHAVIOR ######################################
