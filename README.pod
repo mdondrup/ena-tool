@@ -229,11 +229,13 @@ Please report any bugs or issues to the author or maintainers of this script.
    ena.pl RELEASE object --accession ERZXXXXXXX  --username user --pass "pass" -prod --verbose --releasedate 2024-12-01
 
 =item B<Create a new umbrella project for a HAP2 project>
+   
    ena.pl HAP2_UMBRELLA umbrella --accession "HAP1_project_accession" --username "your_username" --password "your_password" \
    --title "@SPECIES@ Umbrella Project" --description "This is an umbrella project for @SPECIES@" \
    --master_umbrella "PRJEB65317"
 
 =item B<Create a new umbrella project for EBP-Norway>
+   
    ena.pl EBP-NOR_UMBRELLA umbrella --accession "HAP1_project_accession" --username "your_username" --password "your_password" 
   
 
