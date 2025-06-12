@@ -16,14 +16,14 @@ my $today = strftime "%Y-%m-%d", localtime;
 my $timestamp = strftime "-- (updated: %Y-%m-%d %T %Z)", localtime; # Generate a timestamp to append to description for modifications
 
 
-my $maxRetries = 10; ## max number of server retries in case of errors
-my $serverTimeout = 5; ## 10s to respond
-my $waitBetweenRetries = 5; ## 2s to wait betweeen retries
+my $maxRetries = 0; ## max number of server retries in case of errors
+my $serverTimeout = 120; ## Give it 120s to respond, production server is slow, dev server is faster
+my $waitBetweenRetries = 10; ## 2s to wait betweeen retries
 
  # Prepare HTTP user agent
 my $ua = LWP::UserAgent->new;
 $ua->timeout($serverTimeout);
-#$ua->agent("");
+$ua->agent("LWP::UserAgent ena.pl/0.1");
 
 
 
@@ -138,15 +138,15 @@ if ($action eq 'EBP-NOR_UMBRELLA') {
 
     my $species = '';
     my $common_name = '';
-  
+    my $project_file_hap2;
     die "Missing accession for HAP1 project" unless $accession;
     die "Missing title for umbrella project" unless $title;
-    ($project_file, $species, $common_name) = copyHap2Project($what, $accession, $URL_PREFIX);
-    die "Failed to copy HAP1 project $accession" unless $project_file;
+    ($project_file_hap2, $species, $common_name) = copyHap2Project($what, $accession, $URL_PREFIX);
+    die "Failed to copy HAP1 project $accession" unless $project_file_hap2;
     die "Failed to determine species from HAP1 project $accession" unless $species;
     die "Failed to determine common name from HAP1 project $accession. For EBP-NOR project the title must be to formated exactly as 'Genus species (common name)' " if $action eq 'EBP-NOR_UMBRELLA' && !$common_name;
-    $submit_file = makesubmit('ADD', $date);
-    my $proj2_acc = send_request('ADD', $url, $submit_file, $project_file);
+    my $submit_file_hap2 = makesubmit('ADD', $date);
+    my $proj2_acc = send_request('ADD', $url, $submit_file_hap2, $project_file_hap2);
     if ($proj2_acc) {
       print "\nProject $proj2_acc created from HAP1 project $accession with species $species\n";
     } else {
@@ -160,15 +160,15 @@ if ($action eq 'EBP-NOR_UMBRELLA') {
     $alias =~ s/\s/_/g; # replace spaces with underscores
     $alias =~ s/[^a-zA-Z0-9_]/_/g; # remove non-alphanumeric characters
     $alias = lc $alias; # make alias lowercase  
-    my $project_file1 = makeproject('umbrella', $title, $description, $alias, $center);
-    my $submit_file1 = makesubmit('ADD', $date);
-    my $umbrella_acc = send_request('ADD', $url, $submit_file1, $project_file1);
+    my $project_file_umbrella_1 = makeproject('umbrella', $title, $description, $alias, $center);
+    my $submit_file_umbrella_1 = makesubmit('ADD', $date);
+    my $umbrella_acc = send_request('ADD', $url, $submit_file_umbrella_1, $project_file_umbrella_1);
     if ($umbrella_acc) {
       print "\nUmbrella project $umbrella_acc created with alias $alias and species $species\n";
       # Link the new umbrella project to the HAP2 project
-      my $submit_file2 = makesubmit('MODIFY', $date);
-      my $project_file2 = make_modify_project('umbrella', undef, undef, undef, $center, "$accession,$proj2_acc", $umbrella_acc);
-      my $umbrella_acc2 = send_request('MODIFY', $url, $submit_file2, $project_file2);
+      my $submit_file_umbrella_2 = makesubmit('MODIFY', $date);
+      my $project_file_umbrella_2 = make_modify_project('umbrella', undef, undef, undef, $center, "$accession,$proj2_acc", $umbrella_acc);
+      my $umbrella_acc2 = send_request('MODIFY', $url, $submit_file_umbrella_2, $project_file_umbrella_2);
       if ($umbrella_acc2 && $umbrella_acc2 eq $umbrella_acc) {
         # Successfully linked the umbrella project to the HAP2 project
         print "\nUmbrella project $umbrella_acc linked to HAP1 project $accession and HAP2 project $proj2_acc\n";
@@ -180,9 +180,9 @@ if ($action eq 'EBP-NOR_UMBRELLA') {
     }
     if ($master_umbrella) {
       # Link the new umbrella project to the master umbrella project
-      my $submit_file3 = makesubmit('MODIFY', $date);
-      my $project_file3 = make_modify_project('umbrella', undef, undef, undef, $center, $umbrella_acc, $master_umbrella);
-      my $master_umbrella2 = send_request('MODIFY', $url, $submit_file3, $project_file3);
+      my $submit_file_link_3 = makesubmit('MODIFY', $date);
+      my $project_file_link_3 = make_modify_project('umbrella', undef, undef, undef, $center, $umbrella_acc, $master_umbrella);
+      my $master_umbrella2 = send_request('MODIFY', $url, $submit_file_link_3, $project_file_link_3);
       if ($master_umbrella2 && $master_umbrella2 eq $master_umbrella) {
         # Successfully linked the new umbrella project to the master umbrella project
         print "\nUmbrella project $umbrella_acc linked to master umbrella project $master_umbrella\n";
@@ -206,11 +206,10 @@ if ($action eq 'EBP-NOR_UMBRELLA') {
 sub send_request {
   my ($action, $url, $submit_file, $project_file) = @_;
   die "Missing URL or submit file" unless $action eq 'SHOW' || ($url && $submit_file);
-  die "Missing project file" if ($action ne 'SHOW' && !$project_file);
   die "Missing action" unless $action;
   die "Action $action not supported" unless $allowed_actions{$action};
   die "Missing username or password" unless $username && $password;
-  
+  $project_file ||= ''; # default to empty string if not provided
 my $request = ($action eq 'SHOW') ?
   GET $url, Authorization => "Basic $encoded_credentials"
   :
@@ -281,6 +280,12 @@ sub retry_request {
   print ($req->as_string,"\n") if $verbose;
   while (!$response || !$response->is_success) {
     $response = $ua->request($req);
+    if ($response->is_success) {
+      print "Request successful: " . $response->status_line . "\n" if $verbose;
+      last;
+    } else {
+      warn "Request failed: " . $response->status_line . "\n";
+    } 
     if ($response->status_line =~/Operation timed out/) {
       warn "Server connection timed out, waiting $waitBetweenRetries secs ...";
       sleep $waitBetweenRetries;
@@ -289,7 +294,7 @@ sub retry_request {
     last if $retries <= 0 || $response->status_line =~ /404|500 Internal Server Error/ || $response->is_success  ;
   }
   #undef ua;
-  sleep $serverTimeout+1;
+  sleep $waitBetweenRetries; # wait for server to recover, there must have been a reason for the time-out
   return $response;
 }
 
@@ -369,10 +374,11 @@ END_XML
 sub makeproject {
   my ($what, $title, $description, $alias, $center, $locusTag) = @_;
   my $dir = tempdir( CLEANUP => !$keep );
-  $locusTag |= '';
+  $locusTag ||= ''; # default to empty string if not provided
+  $locusTag = '' unless $production; # locusTag only works on production system
   $alias ||= '';
   my ($fh, $filename) = tempfile('ENA-Project-XXXXXXXXXX', DIR => $dir, SUFFIX => '.tmp' );
-  $locusTag = "<LOCUS_TAG_PREFIX>$locusTag</LOCUS_TAG_PREFIX>" if $production && $locusTag; # locusTag only works on production system
+  $locusTag = "<LOCUS_TAG_PREFIX>$locusTag</LOCUS_TAG_PREFIX>" if $locusTag; 
   my $subm_xml = <<"END_XML";
 <SUBMISSION_PROJECT>
    <SEQUENCING_PROJECT>
@@ -416,7 +422,7 @@ sub copyHap2Project {
  # Try to get the species from the title or description
   my $species = '';
   my $common_name = '';
-  if ($data{title} && $data{title} =~ /^(\w+ \w+( \w+)?)\s*(\([\w\s]+\))?/) {
+  if ($data{title} && $data{title} =~ /^(\w+ \w+( \w+)?)\s*(\([\w\s\-_]+\))?/) {
     $species = $1;
     $common_name = $3 || '';
   } else {
@@ -779,11 +785,13 @@ Please report any bugs or issues to the author or maintainers of this script.
    ena.pl RELEASE object --accession ERZXXXXXXX  --username user --pass "pass" -prod --verbose --releasedate 2024-12-01
 
 =item B<Create a new umbrella project for a HAP2 project>
+  
   ena.pl HAP2_UMBRELLA umbrella --accession "HAP1_project_accession" --username "your_username" --password "your_password" \
   --title "@SPECIES@ Umbrella Project" --description "This is an umbrella project for @SPECIES@" \
   --master_umbrella "PRJEB65317"
 
 =item B<Create a new umbrella project for EBP-Norway>
+  
   ena.pl EBP-NOR_UMBRELLA umbrella --accession "HAP1_project_accession" --username "your_username" --password "your_password" 
   
 
