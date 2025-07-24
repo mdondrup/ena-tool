@@ -18,7 +18,7 @@ my $timestamp = strftime "-- (updated: %Y-%m-%d %T %Z)", localtime; # Generate a
 
 my $maxRetries = 0; ## max number of server retries in case of errors
 my $serverTimeout = 120; ## Give it 120s to respond, production server is slow, dev server is faster
-my $waitBetweenRetries = 10; ## 2s to wait betweeen retries
+my $waitBetweenRetries = 5; ## 5s to wait betweeen retries
 
  # Prepare HTTP user agent
 my $ua = LWP::UserAgent->new;
@@ -70,7 +70,7 @@ GetOptions(
 $action = uc $ARGV[0] or usage();
 usage() unless $allowed_actions{$action};
 $what = $ARGV[1];
-$center ||= 'EBP-Norway';
+$center ||= 'EBP Norway';
 $date ||= $today;
 
 # Check required options
@@ -161,12 +161,12 @@ if ($action eq 'EBP-NOR_UMBRELLA') {
     $alias =~ s/[^a-zA-Z0-9_]/_/g; # remove non-alphanumeric characters
     $alias = lc $alias; # make alias lowercase  
     my $project_file_umbrella_1 = makeproject('umbrella', $title, $description, $alias, $center);
-    my $submit_file_umbrella_1 = makesubmit('ADD', $date);
+    my $submit_file_umbrella_1 = makesubmit('ADD', $today);
     my $umbrella_acc = send_request('ADD', $url, $submit_file_umbrella_1, $project_file_umbrella_1);
     if ($umbrella_acc) {
       print "\nUmbrella project $umbrella_acc created with alias $alias and species $species\n";
       # Link the new umbrella project to the HAP2 project
-      my $submit_file_umbrella_2 = makesubmit('MODIFY', $date);
+      my $submit_file_umbrella_2 = makesubmit('MODIFY', $today);
       my $project_file_umbrella_2 = make_modify_project('umbrella', undef, undef, undef, $center, "$accession,$proj2_acc", $umbrella_acc);
       my $umbrella_acc2 = send_request('MODIFY', $url, $submit_file_umbrella_2, $project_file_umbrella_2);
       if ($umbrella_acc2 && $umbrella_acc2 eq $umbrella_acc) {
@@ -180,7 +180,7 @@ if ($action eq 'EBP-NOR_UMBRELLA') {
     }
     if ($master_umbrella) {
       # Link the new umbrella project to the master umbrella project
-      my $submit_file_link_3 = makesubmit('MODIFY', $date);
+      my $submit_file_link_3 = makesubmit('MODIFY', $today);
       my $project_file_link_3 = make_modify_project('umbrella', undef, undef, undef, $center, $umbrella_acc, $master_umbrella);
       my $master_umbrella2 = send_request('MODIFY', $url, $submit_file_link_3, $project_file_link_3);
       if ($master_umbrella2 && $master_umbrella2 eq $master_umbrella) {
